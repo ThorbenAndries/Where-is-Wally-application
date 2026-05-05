@@ -66,5 +66,3 @@ uvicorn app.main:app --reload
 **Bijdragen & contact**
 Feedback, ideeën of hulp zijn welkom — open een issue of stuur een bericht.
 
----
-Wil je dat ik deze README ook automatisch aanvul met concrete `requirements.txt`-regels en een voorbeeld `app/main.py` voor FastAPI? Geef me de voorkeuren (framework/model) en ik genereer de bestanden.
