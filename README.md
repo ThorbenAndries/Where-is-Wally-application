@@ -9,10 +9,10 @@ Een persoonlijk projectidee voor school: bouw een interactieve webapp waarin een
 
 **MVP (Minimal Viable Product)**
 - Upload één zoekplaat.
-+- Detecteer Wally met een object-detection model.
--- De bounding box wordt alleen intern gebruikt door het systeem en wordt niet aan de gebruiker getoond.
--- De gebruiker blijft de afbeelding zien zonder box en kan blijven klikken om Wally te vinden.
--- Geef per klik feedback: `Gevonden`, `Dichtbij` of `Ver weg`.
+- Detecteer Wally met een object-detection model.
+- De bounding box wordt alleen intern gebruikt door het systeem en wordt niet aan de gebruiker getoond.
+- De gebruiker blijft de afbeelding zien zonder box en kan blijven klikken om Wally te vinden.
+- Geef per klik feedback: `Gevonden`, `Dichtbij` of `Ver weg`.
 
 **Hoe het werkt (kort)**
 1. Gebruiker uploadt een afbeeldingsbestand.
@@ -34,29 +34,12 @@ Een persoonlijk projectidee voor school: bouw een interactieve webapp waarin een
 	- afstand <= 0.5 * diag(box) → `Dichtbij`
 	- anders → `Ver weg`
 
-**Installatie & snelstart (voorbeeld)**
-1. Maak een virtuele omgeving en installeer dependencies:
-
-```bash
-python -m venv venv
-venv\\Scripts\\activate
-pip install -r requirements.txt
-```
-
-2. Start de backend:
-
-```bash
-uvicorn app.main:app --reload
-```
-
-3. Open de frontend (lokale HTML of via een dev-server) en upload een afbeelding.
-
 **Uitbreidingen voor later**
 - Meerdere klikpogingen en scoring (spelmodus).
 - Detectie van meerdere personen en onderscheid tussen echte Wally's en lookalikes.
 - Model fine-tuning op grotere datasets voor robuustere detectie.
 
-**Bestanden & organisatie (aanbevolen)**
+**Bestanden & organisatie**
 - `app/` — backend code (inference, API).
 - `frontend/` — webinterface.
 - `models/` — opgeslagen modelgewichten.
