@@ -1,5 +1,8 @@
 venv/
 __pycache__/
 .env
+data/
 models/*.pt
+runs/
+yolo*.pt
 *.pyc

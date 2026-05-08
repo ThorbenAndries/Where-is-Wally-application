@@ -13,7 +13,7 @@ app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 MODEL_PATH = os.getenv("MODEL_PATH", "yolov8n.pt")
-WALLY_CLASS = os.getenv("WALLY_CLASS", "wally")
+TARGET_CLASS = os.getenv("TARGET_CLASS", os.getenv("WALLY_CLASS", "mascot"))
 model = None
 try:
     model = YOLO(MODEL_PATH)
@@ -64,9 +64,9 @@ async def detect_image(file: UploadFile = File(...)):
         store[image_id] = { 'bbox': None }
         return { 'image_id': image_id, 'status': 'no-detection' }
 
-    # If the model has a class named "wally", prefer those detections.
-    wally_boxes = [b for b in boxes if b[5] == WALLY_CLASS.lower()]
-    selected = wally_boxes if wally_boxes else boxes
+    # Prefer detections for the target class, but keep the app usable with generic models.
+    target_boxes = [b for b in boxes if b[5] == TARGET_CLASS.lower()]
+    selected = target_boxes if target_boxes else boxes
     selected.sort(key=lambda x: x[4], reverse=True)
     x1, y1, x2, y2, _, _ = selected[0]
     store[image_id] = { 'bbox': (x1,y1,x2,y2) }
@@ -92,11 +92,15 @@ def click(payload: ClickPayload):
     dist = math.hypot(payload.x - cx, payload.y - cy)
     diag = math.hypot(x2 - x1, y2 - y1)
 
-    if diag == 0:
+    inside_bbox = x1 <= payload.x <= x2 and y1 <= payload.y <= y2
+
+    if inside_bbox:
         feedback = 'Gevonden'
-    elif dist <= 0.2 * diag:
+    elif diag == 0:
         feedback = 'Gevonden'
-    elif dist <= 0.5 * diag:
+    elif dist <= 0.35 * diag:
+        feedback = 'Gevonden'
+    elif dist <= 0.8 * diag:
         feedback = 'Dichtbij'
     else:
         feedback = 'Ver weg'
