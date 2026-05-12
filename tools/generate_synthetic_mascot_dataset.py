@@ -8,7 +8,8 @@ import math
 import random
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter
+import numpy as np
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 
 
 CANVAS_SIZE = 640
@@ -22,6 +23,11 @@ DIFFICULTY_SETTINGS = {
         "lookalikes": (2, 5),
         "occluders": (4, 10),
         "blur_chance": 0.25,
+        "rotation": (-25, 25),
+        "scale_jitter": (0.85, 1.2),
+        "perspective_chance": 0.25,
+        "noise_chance": 0.25,
+        "brightness": (0.82, 1.18),
     },
     "medium": {
         "mascot_size": (32, 62),
@@ -30,6 +36,11 @@ DIFFICULTY_SETTINGS = {
         "lookalikes": (8, 16),
         "occluders": (12, 24),
         "blur_chance": 0.35,
+        "rotation": (-38, 38),
+        "scale_jitter": (0.75, 1.35),
+        "perspective_chance": 0.38,
+        "noise_chance": 0.38,
+        "brightness": (0.72, 1.28),
     },
     "hard": {
         "mascot_size": (24, 46),
@@ -38,6 +49,11 @@ DIFFICULTY_SETTINGS = {
         "lookalikes": (18, 34),
         "occluders": (22, 42),
         "blur_chance": 0.45,
+        "rotation": (-55, 55),
+        "scale_jitter": (0.62, 1.55),
+        "perspective_chance": 0.55,
+        "noise_chance": 0.5,
+        "brightness": (0.6, 1.42),
     },
 }
 
@@ -85,6 +101,90 @@ def load_custom_mascot(path: Path, size: int) -> Image.Image:
     scale = size / max(width, height)
     resized = (max(1, int(width * scale)), max(1, int(height * scale)))
     return mascot.resize(resized, Image.Resampling.LANCZOS)
+
+
+def crop_alpha(sprite: Image.Image) -> Image.Image:
+    bbox = sprite.getchannel("A").getbbox()
+    if bbox is None:
+        return sprite
+    return sprite.crop(bbox)
+
+
+def apply_scale(sprite: Image.Image, rng: random.Random, settings: dict[str, object]) -> Image.Image:
+    min_scale, max_scale = settings["scale_jitter"]
+    scale = rng.uniform(min_scale, max_scale)
+    width = max(1, int(sprite.width * scale))
+    height = max(1, int(sprite.height * scale))
+    return sprite.resize((width, height), Image.Resampling.LANCZOS)
+
+
+def apply_perspective(sprite: Image.Image, rng: random.Random) -> Image.Image:
+    pad = max(6, int(max(sprite.size) * 0.18))
+    canvas = Image.new("RGBA", (sprite.width + pad * 2, sprite.height + pad * 2), (0, 0, 0, 0))
+    canvas.paste(sprite, (pad, pad), sprite)
+
+    width, height = canvas.size
+    max_shift = int(min(width, height) * rng.uniform(0.04, 0.16))
+    source_quad = (
+        rng.randint(0, max_shift),
+        rng.randint(0, max_shift),
+        width - rng.randint(0, max_shift),
+        rng.randint(0, max_shift),
+        width - rng.randint(0, max_shift),
+        height - rng.randint(0, max_shift),
+        rng.randint(0, max_shift),
+        height - rng.randint(0, max_shift),
+    )
+    warped = canvas.transform(
+        canvas.size,
+        Image.Transform.QUAD,
+        source_quad,
+        resample=Image.Resampling.BICUBIC,
+    )
+    return crop_alpha(warped)
+
+
+def augment_mascot(sprite: Image.Image, rng: random.Random, settings: dict[str, object]) -> Image.Image:
+    sprite = apply_scale(sprite, rng, settings)
+
+    min_angle, max_angle = settings["rotation"]
+    if rng.random() < 0.9:
+        sprite = sprite.rotate(
+            rng.uniform(min_angle, max_angle),
+            expand=True,
+            resample=Image.Resampling.BICUBIC,
+        )
+
+    if rng.random() < settings["perspective_chance"]:
+        sprite = apply_perspective(sprite, rng)
+
+    if rng.random() < settings["blur_chance"]:
+        sprite = sprite.filter(ImageFilter.GaussianBlur(radius=rng.uniform(0.2, 1.15)))
+
+    return crop_alpha(sprite)
+
+
+def apply_image_augmentations(image: Image.Image, rng: random.Random, settings: dict[str, object]) -> Image.Image:
+    min_brightness, max_brightness = settings["brightness"]
+    image = ImageEnhance.Brightness(image).enhance(rng.uniform(min_brightness, max_brightness))
+
+    if rng.random() < 0.65:
+        image = ImageEnhance.Contrast(image).enhance(rng.uniform(0.82, 1.22))
+
+    if rng.random() < settings["blur_chance"] * 0.5:
+        image = image.filter(ImageFilter.GaussianBlur(radius=rng.uniform(0.15, 0.65)))
+
+    if rng.random() < settings["noise_chance"]:
+        pixels = np.asarray(image).astype(np.int16)
+        noise = np.random.default_rng(rng.randint(0, 2**32 - 1)).normal(
+            0,
+            rng.uniform(4, 14),
+            pixels.shape,
+        )
+        pixels = np.clip(pixels + noise, 0, 255).astype(np.uint8)
+        image = Image.fromarray(pixels, "RGB")
+
+    return image
 
 
 def list_backgrounds(path: Path | None) -> list[Path]:
@@ -237,18 +337,16 @@ def generate_image(
     min_size, max_size = settings["mascot_size"]
     size = rng.randint(min_size, max_size)
     mascot = load_custom_mascot(mascot_path, size) if mascot_path else make_mascot(size)
-    if rng.random() < 0.8:
-        mascot = mascot.rotate(rng.uniform(-20, 20), expand=True, resample=Image.Resampling.BICUBIC)
+    mascot = augment_mascot(mascot, rng, settings)
 
     x = rng.randint(0, CANVAS_SIZE - mascot.width)
     y = rng.randint(0, CANVAS_SIZE - mascot.height)
 
-    if rng.random() < settings["blur_chance"]:
-        mascot = mascot.filter(ImageFilter.GaussianBlur(radius=rng.uniform(0.2, 0.8)))
-
     image.paste(mascot, (x, y), mascot)
     if not clean_backgrounds:
         add_occluders(image, rng, settings)
+
+    image = apply_image_augmentations(image, rng, settings)
 
     cx = (x + mascot.width / 2) / CANVAS_SIZE
     cy = (y + mascot.height / 2) / CANVAS_SIZE

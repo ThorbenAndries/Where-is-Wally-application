@@ -4,16 +4,18 @@ import uuid
 import math
 import tempfile
 from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from ultralytics import YOLO
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-MODEL_PATH = os.getenv("MODEL_PATH", "yolov8n.pt")
+MODEL_PATH = os.getenv("MODEL_PATH", "models/mascot.pt" if os.path.exists("models/mascot.pt") else "yolov8n.pt")
 TARGET_CLASS = os.getenv("TARGET_CLASS", os.getenv("WALLY_CLASS", "mascot"))
+MASCOT_PATH = os.getenv("MASCOT_PATH", "assets/mascot.png")
 model = None
 try:
     model = YOLO(MODEL_PATH)
@@ -21,15 +23,30 @@ except Exception:
     # model may be downloaded at first run; keep None for now
     model = None
 
-# simple in-memory store: image_id -> {'bbox': (x1,y1,x2,y2)}
+# simple in-memory store: image_id -> {'bbox': (x1,y1,x2,y2), 'confidence': float, 'class_name': str}
 store = {}
+
+
+@app.get("/mascot")
+def download_mascot():
+    if not os.path.exists(MASCOT_PATH):
+        raise HTTPException(status_code=404, detail="Mascot image not found")
+    return FileResponse(
+        MASCOT_PATH,
+        media_type="image/png",
+        filename=os.path.basename(MASCOT_PATH),
+    )
 
 @app.post("/detect")
 async def detect_image(file: UploadFile = File(...)):
     global model
 
     contents = await file.read()
-    img = Image.open(io.BytesIO(contents)).convert("RGB")
+    try:
+        img = Image.open(io.BytesIO(contents)).convert("RGB")
+    except UnidentifiedImageError:
+        raise HTTPException(status_code=400, detail="Uploaded file is not a valid image")
+
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
         tmp_path = tmp.name
     img.save(tmp_path)
@@ -42,7 +59,7 @@ async def detect_image(file: UploadFile = File(...)):
             os.remove(tmp_path)
             raise HTTPException(status_code=500, detail="Model loading failed")
 
-    results = model(tmp_path)
+    results = model(tmp_path, verbose=False)
     os.remove(tmp_path)
 
     # parse boxes (pick highest-confidence box)
@@ -61,16 +78,30 @@ async def detect_image(file: UploadFile = File(...)):
 
     image_id = uuid.uuid4().hex
     if not boxes:
-        store[image_id] = { 'bbox': None }
-        return { 'image_id': image_id, 'status': 'no-detection' }
+        store[image_id] = { 'bbox': None, 'confidence': None, 'class_name': None }
+        return { 'image_id': image_id, 'status': 'no-detection', 'detection': None }
 
     # Prefer detections for the target class, but keep the app usable with generic models.
     target_boxes = [b for b in boxes if b[5] == TARGET_CLASS.lower()]
     selected = target_boxes if target_boxes else boxes
     selected.sort(key=lambda x: x[4], reverse=True)
-    x1, y1, x2, y2, _, _ = selected[0]
-    store[image_id] = { 'bbox': (x1,y1,x2,y2) }
-    return { 'image_id': image_id, 'status': 'ok' }
+    x1, y1, x2, y2, confidence, class_name = selected[0]
+    detection = {
+        'bbox': {
+            'x1': round(x1, 2),
+            'y1': round(y1, 2),
+            'x2': round(x2, 2),
+            'y2': round(y2, 2),
+        },
+        'confidence': round(confidence, 4),
+        'class_name': class_name or TARGET_CLASS,
+    }
+    store[image_id] = {
+        'bbox': (x1, y1, x2, y2),
+        'confidence': confidence,
+        'class_name': class_name,
+    }
+    return { 'image_id': image_id, 'status': 'ok', 'detection': detection }
 
 class ClickPayload(BaseModel):
     image_id: str

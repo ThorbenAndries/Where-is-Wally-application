@@ -7,15 +7,16 @@ Het project is begonnen als een Where Is Wally/Waldo idee, maar is aangepast naa
 **Waarom dit project?**
 - **Eigen dataset:** de trainingsbeelden worden synthetisch gegenereerd met perfecte labels.
 - **Echte AI-pipeline:** dataset maken, YOLO trainen, model gebruiken in een webapp.
-- **Interactief:** de gebruiker krijgt feedback per klik: `Gevonden`, `Dichtbij` of `Ver weg`.
+- **Interactief:** de gebruiker kan de mascotte downloaden, in een eigen afbeelding verwerken, uploaden, en daarna de voorspelde bounding box en confidence bekijken.
 - **Uitbreidbaar:** later kan de synthetische data gemengd worden met eigen CVAT-labels.
 
 **MVP**
 - Genereer een dataset met een verborgen mascotte.
 - Train een YOLOv8 object-detection model op de klasse `mascot`.
-- Upload een afbeelding in de webapp.
+- Download de mascotte-PNG vanuit de webapp.
+- Upload een eigen bewerkte afbeelding waarin de mascotte is verstopt.
 - Detecteer de mascotte met het getrainde model.
-- Gebruik de bounding box alleen intern.
+- Teken de voorspelde bounding box en toon de confidence.
 - Laat de gebruiker klikken en geef tekst-feedback.
 
 **Hoe het werkt**
@@ -23,8 +24,9 @@ Het project is begonnen als een Where Is Wally/Waldo idee, maar is aangepast naa
 2. Bij elke afbeelding wordt automatisch een YOLO-label geschreven rond de mascotte.
 3. YOLOv8 traint op deze dataset.
 4. De FastAPI-backend laadt het model via `MODEL_PATH`.
-5. De frontend toont alleen de afbeelding en stuurt klik-coördinaten naar de backend.
-6. De backend vergelijkt de klik met het midden van de gedetecteerde bounding box.
+5. De frontend tekent de voorspelde bounding box op de canvas en toont de confidence score.
+6. De frontend stuurt klik-coördinaten naar de backend.
+7. De backend vergelijkt de klik met het midden van de gedetecteerde bounding box.
 
 **Projectstructuur**
 - `app/` — FastAPI-backend voor detectie en klik-feedback.
@@ -50,7 +52,7 @@ Maak een dataset met automatisch gelabelde afbeeldingen:
 python3 tools/generate_synthetic_mascot_dataset.py --output data/synthetic-mascot --train 240 --val 60 --difficulty hard
 ```
 
-De generator ondersteunt `easy`, `medium` en `hard`. Voor het project is `hard` het interessantst, omdat de afbeeldingen meer drukte, lookalikes en gedeeltelijke overlap bevatten.
+De generator ondersteunt `easy`, `medium` en `hard`. Voor het project is `hard` het interessantst, omdat de afbeeldingen meer drukte, lookalikes en gedeeltelijke overlap bevatten. De synthetische pipeline past ook sterke augmentaties toe, waaronder blur, brightness/contrast-variatie, rotatie, scaling, perspective transforms en beeldruis.
 
 Je kunt ook je **eigen mascotte** gebruiken. Maak daarvoor een afbeelding met transparante achtergrond, bijvoorbeeld:
 
@@ -97,6 +99,8 @@ Train YOLOv8 op de gegenereerde dataset:
 yolo detect train data=data/synthetic-mascot/data.yaml model=yolov8n.pt epochs=30 imgsz=640
 ```
 
+COCO is hiervoor vooral nuttig als pretrained startpunt via bijvoorbeeld `yolov8n.pt`, of als bron van extra achtergrondfoto's voor `--backgrounds`. Gebruik COCO niet als hoofddataset voor deze taak: COCO bevat geen label voor jouw specifieke mascotte, terwijl de synthetische dataset precies die klasse met correcte bounding boxes genereert.
+
 Na training staat het beste model meestal hier:
 
 ```text
@@ -109,7 +113,9 @@ Gebruik het getrainde model in de app:
 MODEL_PATH=runs/detect/train/weights/best.pt TARGET_CLASS=mascot uvicorn app.main:app --reload
 ```
 
-Open daarna `frontend/index.html` in de browser en upload een testafbeelding uit bijvoorbeeld:
+Open daarna `frontend/index.html` in de browser. Je kunt de mascotte-PNG downloaden, zelf in een afbeelding verwerken, en die afbeelding uploaden. De frontend tekent de voorspelde bounding box en toont de confidence score.
+
+Je kunt ook een testafbeelding uploaden uit bijvoorbeeld:
 
 ```text
 data/synthetic-mascot/images/val/

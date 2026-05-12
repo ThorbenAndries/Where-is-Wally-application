@@ -4,29 +4,62 @@
   <meta charset="utf-8" />
   <title>Hidden Mascot Detector</title>
   <style>
-    body { font-family: Arial, sans-serif; padding: 20px; }
-    #canvas { border: 1px solid #ddd; cursor: crosshair; }
-    #feedback { margin-top: 10px; font-size: 1.2em; }
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; color: #1f2933; background: #f6f8fa; }
+    main { max-width: 980px; margin: 0 auto; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 16px 0; }
+    .button { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 14px; border: 1px solid #9aa5b1; border-radius: 6px; background: #fff; color: #1f2933; text-decoration: none; font-size: 14px; cursor: pointer; }
+    .button:hover { background: #edf2f7; }
+    input[type="file"] { max-width: 100%; }
+    #canvas { max-width: 100%; height: auto; border: 1px solid #d9e2ec; cursor: crosshair; background: #fff; }
+    #feedback, #confidence { margin-top: 10px; font-size: 1.05em; }
+    #confidence { color: #52606d; }
   </style>
 </head>
 <body>
-  <h1>Hidden Mascot Detector</h1>
-  <input type="file" id="fileInput" accept="image/*" />
-  <p>Klik op de afbeelding om de verborgen mascotte te zoeken. De app toont alleen tekst-feedback.</p>
-  <canvas id="canvas"></canvas>
-  <div id="feedback"></div>
+  <main>
+    <h1>Hidden Mascot Detector</h1>
+    <div class="toolbar">
+      <a class="button" href="http://localhost:8000/mascot" download>Download mascotte PNG</a>
+      <input type="file" id="fileInput" accept="image/*" />
+    </div>
+    <p>Upload je bewerkte afbeelding met de mascotte. Het model tekent de voorspelde bounding box en toont de confidence.</p>
+    <canvas id="canvas"></canvas>
+    <div id="feedback"></div>
+    <div id="confidence"></div>
+  </main>
 
   <script>
     const fileInput = document.getElementById('fileInput')
     const canvas = document.getElementById('canvas')
     const ctx = canvas.getContext('2d')
     const feedback = document.getElementById('feedback')
+    const confidence = document.getElementById('confidence')
     let imageId = null
+    let detection = null
     let img = new Image()
+
+    function redrawImage() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, 0, 0)
+      if (detection && detection.bbox) {
+        const { x1, y1, x2, y2 } = detection.bbox
+        ctx.save()
+        ctx.lineWidth = Math.max(3, Math.round(Math.min(canvas.width, canvas.height) * 0.006))
+        ctx.strokeStyle = '#e11d48'
+        ctx.fillStyle = 'rgba(225, 29, 72, 0.14)'
+        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1)
+        ctx.fillRect(x1, y1, x2 - x1, y2 - y1)
+        ctx.restore()
+      }
+    }
 
     fileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0]
       if (!file) return
+      imageId = null
+      detection = null
+      confidence.textContent = ''
+
       const url = URL.createObjectURL(file)
       img.src = url
       await new Promise(r => img.onload = r)
@@ -34,17 +67,34 @@
       // resize canvas to image display size
       canvas.width = img.naturalWidth
       canvas.height = img.naturalHeight
-      ctx.drawImage(img, 0, 0)
+      redrawImage()
 
       // upload to backend for detection
       const form = new FormData()
       form.append('file', file)
       feedback.textContent = 'Detectie aan het draaien...'
-      const res = await fetch('http://localhost:8000/detect', { method: 'POST', body: form })
-      const j = await res.json()
+      let j
+      try {
+        const res = await fetch('http://localhost:8000/detect', { method: 'POST', body: form })
+        j = await res.json()
+        if (!res.ok) throw new Error(j.detail || 'Detectie mislukt.')
+      } catch (error) {
+        feedback.textContent = error.message || 'Detectie mislukt.'
+        return
+      }
+
       if (j.status === 'ok' || j.status === 'no-detection') {
         imageId = j.image_id
-        feedback.textContent = 'Afbeelding geüpload. Klik om te raden.'
+        detection = j.detection
+        redrawImage()
+        if (detection) {
+          const score = Math.round(detection.confidence * 1000) / 10
+          feedback.textContent = 'Mascotte gedetecteerd. Klik om te controleren.'
+          confidence.textContent = `Confidence: ${score}%`
+        } else {
+          feedback.textContent = 'Geen mascotte gedetecteerd.'
+          confidence.textContent = ''
+        }
       } else {
         feedback.textContent = 'Detectie mislukt.'
       }
