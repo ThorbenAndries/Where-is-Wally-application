@@ -34,6 +34,10 @@
     const ctx = canvas.getContext('2d')
     const feedback = document.getElementById('feedback')
     const confidence = document.getElementById('confidence')
+    const apiBase = location.protocol === 'file:'
+      ? 'http://localhost:8000'
+      : `${location.protocol}//${location.hostname}:8000`
+    document.querySelector('a[download]').href = `${apiBase}/mascot`
     let imageId = null
     let detection = null
     let img = new Image()
@@ -74,13 +78,23 @@
       form.append('file', file)
       feedback.textContent = 'Detectie aan het draaien...'
       let j
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 60000)
       try {
-        const res = await fetch('http://localhost:8000/detect', { method: 'POST', body: form })
+        const res = await fetch(`${apiBase}/detect`, {
+          method: 'POST',
+          body: form,
+          signal: controller.signal,
+        })
         j = await res.json()
         if (!res.ok) throw new Error(j.detail || 'Detectie mislukt.')
       } catch (error) {
-        feedback.textContent = error.message || 'Detectie mislukt.'
+        feedback.textContent = error.name === 'AbortError'
+          ? 'Detectie duurt te lang. Controleer of de backend draait.'
+          : error.message || 'Detectie mislukt. Controleer of de backend draait.'
         return
+      } finally {
+        clearTimeout(timeout)
       }
 
       if (j.status === 'ok' || j.status === 'no-detection') {
@@ -108,7 +122,7 @@
       const y = (e.clientY - rect.top) * (img.naturalHeight / rect.height)
 
       const payload = { image_id: imageId, x: Math.round(x), y: Math.round(y) }
-      const res = await fetch('http://localhost:8000/click', {
+      const res = await fetch(`${apiBase}/click`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       })
       const j = await res.json()

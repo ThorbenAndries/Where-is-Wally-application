@@ -46,9 +46,16 @@ yolo detect train \
   name=mascot-synthetic \
   exist_ok=True
 
+SYNTHETIC_MODEL="$(find "$ROOT_DIR/runs" -path '*/mascot-synthetic/weights/best.pt' -printf '%T@ %p\n' | sort -nr | head -n 1 | cut -d' ' -f2-)"
+if [[ -z "$SYNTHETIC_MODEL" ]]; then
+  echo "Could not find mascot-synthetic best.pt"
+  exit 1
+fi
+echo "Synthetic model: $SYNTHETIC_MODEL"
+
 yolo detect train \
   data=data/cvat-mascot/data.yaml \
-  model=runs/detect/mascot-synthetic/weights/best.pt \
+  model="$SYNTHETIC_MODEL" \
   epochs="$CVAT_EPOCHS" \
   imgsz="$IMAGE_SIZE" \
   patience=12 \
@@ -58,9 +65,14 @@ yolo detect train \
   name=mascot-final \
   exist_ok=True
 
-cp runs/detect/mascot-final/weights/best.pt models/mascot.pt
+FINAL_MODEL="$(find "$ROOT_DIR/runs" -path '*/mascot-final/weights/best.pt' -printf '%T@ %p\n' | sort -nr | head -n 1 | cut -d' ' -f2-)"
+if [[ -z "$FINAL_MODEL" ]]; then
+  echo "Could not find mascot-final best.pt"
+  exit 1
+fi
+cp "$FINAL_MODEL" models/mascot.pt
 
 echo "Training finished: $(date)"
 echo "Final model: $ROOT_DIR/models/mascot.pt"
-echo "Synthetic run: $ROOT_DIR/runs/detect/mascot-synthetic"
-echo "Final run: $ROOT_DIR/runs/detect/mascot-final"
+echo "Synthetic model: $SYNTHETIC_MODEL"
+echo "Fine-tuned model: $FINAL_MODEL"
